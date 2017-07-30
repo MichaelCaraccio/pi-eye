@@ -1,9 +1,7 @@
 from sensor_spec.sensor import Sensor
-import numpy as np
 import picamera
 import picamera.array
 from picamera.array import PiMotionAnalysis
-
 
 class VideoSensor(Sensor, PiMotionAnalysis):
     '''
@@ -19,7 +17,7 @@ class VideoSensor(Sensor, PiMotionAnalysis):
 
         self._w = int(1280)
         self._h = int(960)
-        self._framerate = 5
+        self._framerate = 24
         self._camera = picamera.PiCamera()
 
         PiMotionAnalysis.__init__(self, self._camera)
@@ -28,14 +26,13 @@ class VideoSensor(Sensor, PiMotionAnalysis):
         self._camera.framerate = self._framerate
         self._camera.start_recording('/dev/null', format='h264', motion_output=self)
 
+
     def analyze(self, motionMatrix):
         '''
         Callback method for PiMotionAnalysis
         :param motionMatrix: motion matrix
         '''
-        image = np.empty((self._h, self._w, 3), dtype=np.uint8)
-        self._camera.capture(image, 'rgb', use_video_port=True)
-        self._setValue(motionMatrix, image)
+        self._setValue(motionMatrix, self._camera)
 
     def stop(self):
         '''

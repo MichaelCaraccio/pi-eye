@@ -6,6 +6,7 @@ class Sensor(EventManager):
     Class describing the sensor that can handle and update a value when
     a value change from a call of _setValue
     '''
+
     def __init__(self, name, defaultValue, eventMethodName):
         '''
         :param name: sensor printable name

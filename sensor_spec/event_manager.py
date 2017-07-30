@@ -17,7 +17,8 @@ class EventManager(object):
         :param listener: object having a method named eventMethodName
         '''
         try:
-            self._listListener[listener] = getattr(listener, self._eventMethodName)
+            self._listListener[listener] = getattr(
+                listener, self._eventMethodName)
         except AttributeError:
             print("Not the right method")
 

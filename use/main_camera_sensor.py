@@ -3,7 +3,10 @@ import numpy as np
 import time
 import os
 from picamera import PiCameraCircularIO
-
+from sensehub_client.client import Client
+from sensehub_client.value import Value
+from multiprocessing import Process, Queue
+import base64
 
 class PrintListener():
 
@@ -21,18 +24,29 @@ class PrintListener():
     # "stable" motion matrix
     _STABILIZATION_TIME_S = 2
 
+    # time between each upload
+    _UPLOAD_TIME_S = 3
+
     def __init__(self):
         self._folderPath = './generated'
-        self._isCameraRecording = False
-        self._lastTimeMotion = 0
+        self._is_camera_recording = False
+        self._last_time_motion = 0
         self._stream = None
         self._file = None
         self._nbImages = 0
+        self._client = Client.create_client()
+        self._message_queue = Queue()
+        self._upload_process = Process(target=self._upload_method, args=(self._message_queue, self._client))
+
+        self._last_uploaded = 0
+
+        self._upload_process.start()
 
         if not os.path.isdir(self._folderPath):
             os.mkdir(self._folderPath)
 
-    def newImage(self, a, camera):
+    def new_image(self, a, camera):
+
         if self._stream is None:
             self._stream = PiCameraCircularIO(
                 camera, seconds= PrintListener._CIRCULAR_BUFFER_TIME_S, splitter_port=3)
@@ -45,6 +59,16 @@ class PrintListener():
             self._nbImages += 1
             return
 
+        # Get image every _UPLOAD_TIME_S and convert to base 64
+
+        now = time.time()
+
+        if now - self._last_uploaded >= PrintListener._UPLOAD_TIME_S:
+            filename = './temp_image_' + str(now)
+            camera.capture(filename, 'jpeg', use_video_port=True, quality=80)
+            self._message_queue.put(filename)
+            self._last_uploaded = now
+
         a = np.sqrt(
             np.square(a['x'].astype(np.float)) +
             np.square(a['y'].astype(np.float))
@@ -54,31 +78,52 @@ class PrintListener():
         # than 60, then say we've detected motion
         if (a > 60).sum() > 10:
             print('Motion detected!', end='\r')
-            self._lastTimeMotion = time.time()
+            self._last_time_motion = now
 
-        if time.time() - self._lastTimeMotion <= PrintListener._RECORDING_TIME_S:
+        if now - self._last_time_motion <= PrintListener._RECORDING_TIME_S:
             filename = self._folderPath + \
-                '/frame%03d.%s' % (time.time(),
-                                   PrintListener._FILE_EXTENSION)
+                '/frame%03d.%s' % (now, PrintListener._FILE_EXTENSION)
 
-            if not self._isCameraRecording:
+            if not self._is_camera_recording:
                 self._file = open(filename, 'wb')
 
                 self._stream.copy_to(self._file)
                 self._stream.clear()
 
-                self._isCameraRecording = True
+                self._is_camera_recording = True
                 camera.start_recording(
                     self._file, splitter_port=2, format=PrintListener._FORMAT, sei=True, sps_timing=True)
 
-                #camera.capture(filename, 'jpeg', use_video_port=True, quality=80)
                 print('Writing %s' % filename)
-        elif self._isCameraRecording:
+        elif self._is_camera_recording:
             camera.stop_recording(splitter_port=2)
             self._file.close()
-            self._isCameraRecording = False
+            self._is_camera_recording = False
             print('Recording stopped!')
 
+    def _upload_method(self, queue, client):
+        while True:
+            filename = queue.get()
+            print(filename)
+            value = Value(value=self._toBase64(filename),
+                          type="image",
+                          meta=None)
+            status, message = client.new_value(value)
+
+            if not status == 'ok':
+                print(message)
+            else:
+                print("Could not connect to server")
+            os.remove(filename)
+
+    def _toBase64(self, filename):
+        '''
+        Convert image to base64
+        :param filename: filename
+        :return:
+        '''
+        with open(filename, 'rb') as img:
+            return base64.b64encode(img.read()).decode('utf-8')
 
 def main():
     sensor = VideoSensor('videoTest')

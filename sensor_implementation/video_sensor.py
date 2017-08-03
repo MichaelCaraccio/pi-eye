@@ -14,7 +14,7 @@ class VideoSensor(Sensor, PiMotionAnalysis):
 
         :param name: displayable name of the sensor
         '''
-        Sensor.__init__(self, name, None, 'newImage')
+        Sensor.__init__(self, name, None, 'new_image')
 
         self._w = int(1280)
         self._h = int(720)
@@ -28,12 +28,12 @@ class VideoSensor(Sensor, PiMotionAnalysis):
         self._camera.start_recording(
             '/dev/null', format='h264', motion_output=self, sps_timing=True, sei=True)
 
-    def analyze(self, motionMatrix):
+    def analyze(self, motion_matrix):
         '''
         Callback method for PiMotionAnalysis
-        :param motionMatrix: motion matrix
+        :param motion_matrix: motion matrix
         '''
-        self._setValue(motionMatrix, self._camera)
+        self._set_value(motion_matrix, self._camera)
 
     def stop(self):
         '''

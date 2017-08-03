@@ -3,13 +3,13 @@ class EventManager(object):
     Abstract class that simplify the implementation of listeners
     '''
 
-    def __init__(self, eventMethodName):
+    def __init__(self, event_method_name):
         '''
-        :param eventMethodName: method called by the broadcast
+        :param event_method_name: method called by the broadcast
         '''
 
-        self._eventMethodName = eventMethodName
-        self._listListener = {}
+        self._event_method_name = event_method_name
+        self._list_listener = {}
 
     def add(self, listener):
         '''
@@ -17,8 +17,8 @@ class EventManager(object):
         :param listener: object having a method named eventMethodName
         '''
         try:
-            self._listListener[listener] = getattr(
-                listener, self._eventMethodName)
+            self._list_listener[listener] = getattr(
+                listener, self._event_method_name)
         except AttributeError:
             print("Not the right method")
 
@@ -27,12 +27,12 @@ class EventManager(object):
         Remove a listener
         :param listener: object having a method named eventMethodName
         '''
-        self._listListener.pop(listener)
+        self._list_listener.pop(listener)
 
     def _broadcast(self, *event):
         '''
         Must be call by the inherited classes when an event occures
         :param event: list of event parameters
         '''
-        for method in self._listListener.values():
+        for method in self._list_listener.values():
             method(*event)

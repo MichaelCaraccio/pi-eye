@@ -107,17 +107,19 @@ class PrintListener():
     def _upload_method(self, queue, client):
         while True:
             filename, is_persistent = queue.get()
-            print(filename)
-            value = Value(value=self._toBase64(filename),
-                          type="image",
-                          meta={'persist':is_persistent})
-            status, message = client.new_value(value)
 
-            if status :
-                print('Successfully uploaded')
-            else:
-                print("Could not connect to server")
-            os.remove(filename)
+            try :
+                value = Value(value=self._toBase64(filename),
+                              type="image",
+                              meta={'persist':is_persistent})
+                status, message = client.new_value(value)
+
+                if status :
+                    print('Successfully uploaded')
+                else:
+                    print("Could not connect to server")
+            finally:
+                os.remove(filename)
 
     def _toBase64(self, filename):
         '''

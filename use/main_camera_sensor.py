@@ -34,7 +34,7 @@ class PrintListener():
         self._stream = None
         self._file = None
         self._nbImages = 0
-        self._client = Client.create_client()
+        self._client = Client.create_client('./config.ini')
         self._message_queue = Queue()
         self._upload_process = Process(target=self._upload_method, args=(self._message_queue, self._client))
 
@@ -59,26 +59,29 @@ class PrintListener():
             self._nbImages += 1
             return
 
-        # Get image every _UPLOAD_TIME_S and convert to base 64
 
         now = time.time()
-
-        if now - self._last_uploaded >= PrintListener._UPLOAD_TIME_S:
-            filename = './temp_image_' + str(now)
-            camera.capture(filename, 'jpeg', use_video_port=True, quality=80)
-            self._message_queue.put(filename)
-            self._last_uploaded = now
 
         a = np.sqrt(
             np.square(a['x'].astype(np.float)) +
             np.square(a['y'].astype(np.float))
         ).clip(0, 255).astype(np.uint8)
 
+        is_persistent = False
+
         # If there're more than 10 vectors with a magnitude greater
         # than 60, then say we've detected motion
         if (a > 60).sum() > 10:
             print('Motion detected!', end='\r')
             self._last_time_motion = now
+            is_persistent = True
+
+        # Get image every _UPLOAD_TIME_S and convert to base 64
+        if now - self._last_uploaded >= PrintListener._UPLOAD_TIME_S:
+            filename = './temp_image_' + str(now)
+            camera.capture(filename, 'jpeg', use_video_port=True, quality=80)
+            self._message_queue.put((filename, is_persistent))
+            self._last_uploaded = now
 
         if now - self._last_time_motion <= PrintListener._RECORDING_TIME_S:
             filename = self._folderPath + \
@@ -103,15 +106,15 @@ class PrintListener():
 
     def _upload_method(self, queue, client):
         while True:
-            filename = queue.get()
+            filename, is_persistent = queue.get()
             print(filename)
             value = Value(value=self._toBase64(filename),
                           type="image",
-                          meta=None)
+                          meta={'persist':is_persistent})
             status, message = client.new_value(value)
 
-            if not status == 'ok':
-                print(message)
+            if status :
+                print('Successfully uploaded')
             else:
                 print("Could not connect to server")
             os.remove(filename)

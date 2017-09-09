@@ -7,6 +7,8 @@ from sensehub_client.client import Client
 from sensehub_client.value import Value
 from multiprocessing import Process, Queue
 import base64
+import configparser
+
 
 class PrintListener():
 
@@ -34,22 +36,26 @@ class PrintListener():
         self._stream = None
         self._file = None
         self._nbImages = 0
-        self._client = Client.create_client('./config.ini')
-        self._message_queue = Queue()
-        self._upload_process = Process(target=self._upload_method, args=(self._message_queue, self._client))
+        client_video, client_image = create_clients('./config.ini')
+        clients = {'image': client_image, 'video': client_video}
+        self._upload_processes, self._message_queues = self._create_processes(
+            clients)
+
+        self._filename_video = ''
 
         self._last_uploaded = 0
 
-        self._upload_process.start()
+        for process in self._upload_processes.values():
+            print("starting process" + str(process))
+            process.start()
 
         if not os.path.isdir(self._folderPath):
             os.mkdir(self._folderPath)
 
     def new_image(self, a, camera):
-
         if self._stream is None:
             self._stream = PiCameraCircularIO(
-                camera, seconds= PrintListener._CIRCULAR_BUFFER_TIME_S, splitter_port=3)
+                camera, seconds=PrintListener._CIRCULAR_BUFFER_TIME_S, splitter_port=3)
             camera.start_recording(
                 self._stream, splitter_port=3, format=PrintListener._FORMAT, sei=True, sps_timing=True)
 
@@ -58,7 +64,6 @@ class PrintListener():
         if self._nbImages < PrintListener._STABILIZATION_TIME_S * camera.framerate:
             self._nbImages += 1
             return
-
 
         now = time.time()
 
@@ -74,21 +79,21 @@ class PrintListener():
         if (a > 60).sum() > 10:
             print('Motion detected!', end='\r')
             self._last_time_motion = now
-            is_persistent = True
 
         # Get image every _UPLOAD_TIME_S and convert to base 64
         if now - self._last_uploaded >= PrintListener._UPLOAD_TIME_S:
-            filename = './temp_image_' + str(now)
-            camera.capture(filename, 'jpeg', use_video_port=True, quality=80)
-            self._message_queue.put((filename, is_persistent))
+            filename_picture = self._folderPath +'/temp_image_' + str(now)
+            camera.capture(filename_picture, 'jpeg',
+                           use_video_port=True, quality=80)
+            self._message_queues['image'].put(
+                (filename_picture, is_persistent, 'image'))
             self._last_uploaded = now
 
         if now - self._last_time_motion <= PrintListener._RECORDING_TIME_S:
-            filename = self._folderPath + \
-                '/frame%03d.%s' % (now, PrintListener._FILE_EXTENSION)
-
             if not self._is_camera_recording:
-                self._file = open(filename, 'wb')
+                self._filename_video = self._folderPath + \
+                    '/frame%03d.%s' % (now, PrintListener._FILE_EXTENSION)
+                self._file = open(self._filename_video, 'wb')
 
                 self._stream.copy_to(self._file)
                 self._stream.clear()
@@ -97,29 +102,42 @@ class PrintListener():
                 camera.start_recording(
                     self._file, splitter_port=2, format=PrintListener._FORMAT, sei=True, sps_timing=True)
 
-                print('Writing %s' % filename)
+                print('Writing %s' % self._filename_video)
+
         elif self._is_camera_recording:
             camera.stop_recording(splitter_port=2)
             self._file.close()
             self._is_camera_recording = False
             print('Recording stopped!')
+            self._message_queues['video'].put(
+                (self._filename_video, None, 'video'))
+
+    def _create_processes(self, clients):
+        processes = {}
+        queues = {}
+        for data_type, client in clients.items():
+            queues[data_type] = Queue()
+            processes[data_type] = Process(
+                target=self._upload_method, args=(queues[data_type], client))
+        return processes, queues
 
     def _upload_method(self, queue, client):
         while True:
-            filename, is_persistent = queue.get()
+            filename, is_persistent, data_type = queue.get()
 
-            try :
+            try:
                 value = Value(value=self._toBase64(filename),
-                              type="image",
-                              meta={'persist':is_persistent})
+                              type=data_type,
+                              meta={'persist': is_persistent})
                 status, message = client.new_value(value)
 
-                if status :
+                if status:
                     print('Successfully uploaded')
+                    os.remove(filename)
                 else:
                     print("Could not connect to server")
             finally:
-                os.remove(filename)
+                pass
 
     def _toBase64(self, filename):
         '''
@@ -129,6 +147,35 @@ class PrintListener():
         '''
         with open(filename, 'rb') as img:
             return base64.b64encode(img.read()).decode('utf-8')
+
+
+def create_clients(filename):
+    '''
+    i.e : create_client('./config.ini')
+    '''
+
+    try:
+        config = configparser.ConfigParser()
+        config.read(filename)
+
+        server_ip = config.get("server", 'ip')
+        server_port = config.get("server", 'port')
+
+        sensor_id_video = config.get("sensor_video", 'sensor_id')
+        key_video = config.get("sensor_video", 'key')
+
+        sensor_id_image = config.get("sensor_picture", 'sensor_id')
+        key_image = config.get("sensor_picture", 'key')
+
+        return Client(server_ip, server_port, sensor_id_video, key_video), Client(server_ip, server_port, sensor_id_image, key_image)
+
+    except FileExistsError:
+        print("Error with file")
+    except FileNotFoundError:
+        print("File does not exist")
+    except configparser.NoOptionError:
+        print("Option does not exist")
+
 
 def main():
     sensor = VideoSensor('videoTest')

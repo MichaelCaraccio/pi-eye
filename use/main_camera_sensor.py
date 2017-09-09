@@ -2,6 +2,7 @@ from sensor_implementation.video_sensor import VideoSensor
 import numpy as np
 import time
 import os
+from subprocess import call
 from picamera import PiCameraCircularIO
 from sensehub_client.client import Client
 from sensehub_client.value import Value
@@ -121,11 +122,23 @@ class PrintListener():
                 target=self._upload_method, args=(queues[data_type], client))
         return processes, queues
 
+    def _convert_mp4(self, filename):
+        filename_mp4 = filename +"_converted.mp4"
+        command = "MP4Box -add %s %s" %(filename, filename_mp4)
+        returncode = call(command.split(" "))
+        if returncode != 0:
+            return filename
+        else:
+            os.remove(filename)
+            return filename_mp4
+
     def _upload_method(self, queue, client):
         while True:
             filename, is_persistent, data_type = queue.get()
 
             try:
+                if data_type == 'video':
+                    filename = self._convert_mp4(filename)
                 value = Value(value=self._toBase64(filename),
                               type=data_type,
                               meta={'persist': is_persistent})

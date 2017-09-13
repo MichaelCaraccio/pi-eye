@@ -16,12 +16,14 @@ class PrintListener():
     # circular buffer time
     _CIRCULAR_BUFFER_TIME_S = 5
     # recording time after no motion is detected
-    _RECORDING_TIME_S = 1
+    _RECORDING_TIME_S = 5
 
     # output format
     _FORMAT = "h264"
     # file extension for video saving
     _FILE_EXTENSION = "h264"
+
+    _MOTION_COUNTER_THRESHOLD = 3
 
     # time before the motion sensing is activated, allows the camera to have a
     # "stable" motion matrix
@@ -37,6 +39,7 @@ class PrintListener():
         self._stream = None
         self._file = None
         self._nbImages = 0
+        self._motion_counter = 0
         client_video, client_image = create_clients('./config.ini')
         clients = {'image': client_image, 'video': client_video}
         self._upload_processes, self._message_queues = self._create_processes(
@@ -78,8 +81,11 @@ class PrintListener():
         # If there're more than 10 vectors with a magnitude greater
         # than 60, then say we've detected motion
         if (a > 60).sum() > 10:
-            print('Motion detected!', end='\r')
+            print('Motion detected!')
             self._last_time_motion = now
+            self._motion_counter += 1
+        elif now - self._last_time_motion > PrintListener._RECORDING_TIME_S:
+            self._motion_counter = 0
 
         # Get image every _UPLOAD_TIME_S and convert to base 64
         if now - self._last_uploaded >= PrintListener._UPLOAD_TIME_S:
@@ -90,7 +96,7 @@ class PrintListener():
                 (filename_picture, is_persistent, 'image'))
             self._last_uploaded = now
 
-        if now - self._last_time_motion <= PrintListener._RECORDING_TIME_S:
+        if now - self._last_time_motion <= PrintListener._RECORDING_TIME_S and self._motion_counter >= PrintListener._MOTION_COUNTER_THRESHOLD:
             if not self._is_camera_recording:
                 self._filename_video = self._folderPath + \
                     '/frame%03d.%s' % (now, PrintListener._FILE_EXTENSION)
@@ -139,13 +145,13 @@ class PrintListener():
             try:
                 if data_type == 'video':
                     filename = self._convert_mp4(filename)
+
                 value = Value(value=self._toBase64(filename),
                               type=data_type,
                               meta={'persist': is_persistent})
                 status, message = client.new_value(value)
-
                 if status:
-                    print('Successfully uploaded')
+                    print('Successfully uploaded : ' + data_type)
                     os.remove(filename)
                 else:
                     print("Could not connect to server")
